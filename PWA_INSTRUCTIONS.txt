@@ -1,0 +1,26 @@
+
+Add to <head>:
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#e2e8f0" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+Add an Install button in your header:
+<button id="installBtn" class="px-3 py-2 rounded-xl bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 transition hidden">Install</button>
+
+In your <script> (near the end), add:
+let deferredPrompt=null;
+const installBtn=document.getElementById('installBtn');
+window.addEventListener('beforeinstallprompt',(e)=>{e.preventDefault(); deferredPrompt=e; installBtn?.classList.remove('hidden');});
+installBtn?.addEventListener('click', async()=>{ if(!deferredPrompt) return; installBtn.classList.add('hidden'); deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null;});
+window.addEventListener('appinstalled',()=>installBtn?.classList.add('hidden'));
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js')); }
+
+Place these files next to your index.html:
+- manifest.webmanifest
+- service-worker.js
+- icons/icon-192.png
+- icons/icon-512.png
+
+Then deploy over HTTPS (Vercel/Netlify/GitHub Pages) and add the live URL to Spotify Redirect URIs.

@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Random Spotify Song Picker</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script> tailwind.config = { darkMode: 'class' }; </script>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#e2e8f0" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <style>
+    /* Light/Dark glass cards */
+    .glass { backdrop-filter: blur(14px); background: rgba(255,255,255,.65); border: 1px solid rgba(0,0,0,.06); }
+    .dark .glass { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.1); }
+
+    .spin { animation: spin 1.05s linear infinite; }
+    @keyframes pop { 0% { transform: scale(.96); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
+    .pop-in { animation: pop .35s ease-out both; }
+    @keyframes wiggle { 0%,100%{ transform: rotate(0) } 25%{ transform: rotate(1.5deg) } 75%{ transform: rotate(-1.5deg) } }
+    .wiggle { animation: wiggle .35s ease-in-out; }
+    @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(8px)} to { opacity: 1; transform: translateY(0)} }
+    .enter { animation: fadeSlideUp .45s ease both; }
+
+    /* button ripple */
+    .action-btn { position: relative; overflow: hidden; transition: transform 120ms ease; }
+    .action-btn:hover { transform: translateY(-1px) scale(1.02); }
+    .ripple { position: absolute; border-radius: 9999px; transform: scale(0); animation: ripple .6s linear; background: currentColor; opacity: .15; pointer-events: none; }
+    @keyframes ripple { to { transform: scale(3); opacity: 0; } }
+  </style>
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-slate-100 via-slate-200 to-emerald-100 dark:from-slate-900 dark:via-slate-800 dark:to-violet-900 text-slate-800 dark:text-slate-100 transition-colors duration-300">
+  <div class="max-w-4xl mx-auto p-6">
+    <header class="flex items-center justify-between mt-4 mb-6">
+      <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight select-none">🎲 Random Spotify Song Picker</h1>
+      <div class="flex items-center gap-2">
+        <button id="installBtn" class="px-3 py-2 rounded-xl bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 transition hidden">Install</button>
+        <button id="themeToggle" class="px-3 py-2 rounded-xl bg-black/5 hover:bg-black/10 text-slate-700 dark:text-slate-100 dark:bg-white/10 dark:hover:bg-white/20 transition" title="Toggle theme">🌙</button>
+        <button id="logoutBtn" class="hidden px-3 py-2 rounded-xl bg-black/5 hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20 transition" title="Sign out">Sign out</button>
+      </div>
+    </header>
+
+    <main class="glass enter rounded-3xl shadow-2xl border border-white/10 p-5 sm:p-8">
+      <section id="authSection" class="text-center">
+        <p class="text-slate-500 dark:text-slate-300 mb-4">Login to let me browse your Liked Songs or Playlists.</p>
+        <button id="loginBtn" class="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold transition shadow-lg">Log in with Spotify</button>
+      </section>
+
+      <section id="appSection" class="hidden">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div class="flex items-center gap-3">
+            <img id="avatar" alt="Avatar" class="w-10 h-10 rounded-full hidden"/>
+            <div>
+              <p class="text-sm text-slate-400">Logged in as</p>
+              <p id="displayName" class="text-lg font-medium">…</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-6 enter">
+          <!-- Source card -->
+          <div class="glass rounded-2xl border border-white/10 p-5">
+            <h2 class="font-semibold mb-3">Pick from</h2>
+            <div class="space-y-3">
+              <label class="flex items-center gap-3">
+                <input type="radio" name="source" value="liked" class="accent-emerald-500" checked />
+                <span>Liked Songs</span>
+              </label>
+              <label class="flex items-center gap-3">
+                <input type="radio" name="source" value="playlist" class="accent-emerald-500" />
+                <span>One of my playlists</span>
+              </label>
+              <div id="playlistPicker" class="hidden mt-2">
+                <select id="playlistSelect" class="w-full bg-black/20 dark:bg-black/30 border border-white/10 rounded-xl p-3">
+                  <option>Loading your playlists…</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action card -->
+          <div class="glass rounded-2xl border border-white/10 p-5">
+            <h2 class="font-semibold mb-3">Action</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-300 mb-4">I’ll pick one at random using offsets — truly random without downloading everything.</p>
+            <button id="rollBtn" class="w-full px-5 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-slate-900 font-semibold transition shadow-lg action-btn">Pick random</button>
+            <div id="loading" class="hidden mt-4 flex items-center gap-3 text-slate-300">
+              <svg class="w-5 h-5 spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3a9 9 0 1 0 9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <span>Thinking…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result -->
+        <div id="result" class="mt-8 hidden">
+          <div class="glass rounded-3xl border border-white/10 p-4 sm:p-6 flex flex-col sm:flex-row gap-5">
+            <img id="cover" alt="Cover" class="w-full sm:w-48 aspect-square object-cover rounded-2xl shadow" />
+            <div class="flex-1">
+              <p class="text-sm text-slate-400 mb-1" id="sourceLabel"></p>
+              <h3 id="trackTitle" class="text-2xl font-semibold leading-tight"></h3>
+              <p id="trackMeta" class="text-slate-500 dark:text-slate-300"></p>
+
+              <div id="previewWrap" class="mt-4 hidden">
+                <audio id="preview" controls class="w-full" preload="none"></audio>
+                <p class="text-xs text-slate-400 mt-1">30-second preview (if available)</p>
+              </div>
+
+              <div class="mt-5 flex flex-wrap gap-3">
+                <a id="openBtn" href="#" target="_blank" rel="noopener" class="px-4 py-2 rounded-xl bg-white text-slate-900 font-medium hover:bg-slate-100 transition">Open in Spotify</a>
+
+                <!-- NEW: Preview button -->
+                <button id="previewBtn" class="px-4 py-2 rounded-2xl bg-teal-500 hover:bg-teal-400 text-slate-900 font-semibold transition action-btn hidden" title="Play 30s preview">Preview ▶</button>
+
+                <button id="playBtn" class="px-4 py-2 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold transition action-btn">Play ▶</button>
+                <button id="queueBtn" class="px-4 py-2 rounded-2xl bg-fuchsia-500 hover:bg-fuchsia-400 text-slate-900 font-semibold transition action-btn">Queue</button>
+                <button id="heartBtn" class="px-4 py-2 rounded-2xl bg-rose-500 hover:bg-rose-400 text-slate-900 font-semibold transition action-btn" aria-pressed="false" title="Save to Liked Songs">♡ Save</button>
+                <button id="shareBtn" class="px-4 py-2 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-semibold transition action-btn" title="Share image or tweet">Share</button>
+                <button id="rerollBtn" class="px-4 py-2 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-slate-900 font-semibold transition action-btn">Roll again</button>
+              </div>
+              <p id="status" class="text-xs text-slate-500 dark:text-slate-400 mt-2"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- History -->
+        <section id="historySection" class="mt-6 hidden">
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">History</h2>
+            <div class="text-xs text-slate-400">Shortcuts: <b>Space</b>=roll, <b>P</b>=play, <b>Q</b>=queue, <b>O</b>=open, <b>H</b>=history</div>
+            <button id="clearHistoryBtn" class="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs">Clear</button>
+          </div>
+          <div id="historyList" class="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"></div>
+        </section>
+      </section>
+    </main>
+
+    <!-- Device toast overlay -->
+    <div id="deviceToast" class="fixed inset-0 hidden items-end sm:items-center justify-center p-4 z-50">
+      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+      <div class="relative glass rounded-2xl max-w-md w-full p-5 border border-white/10 shadow-xl">
+        <h3 class="font-semibold mb-2">No active device</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-300">Open Spotify on your phone/desktop and press play once. Then come back here and try again.</p>
+        <div class="mt-4 flex justify-end gap-2">
+          <button id="deviceDismiss" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20">Dismiss</button>
+          <button id="deviceRetry" class="px-3 py-2 rounded-lg bg-emerald-500 text-slate-900 font-semibold hover:bg-emerald-400">I did this — Retry</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="mt-6 text-center text-xs text-slate-400">
+      <p>Made for fun. Not affiliated with Spotify.</p>
+    </footer>
+  </div>
+
+  <!-- FX canvas for confetti -->
+  <canvas id="fx" class="fixed inset-0 pointer-events-none"></canvas>
+
+  <script>
+    // ======= CONFIG =======
+    const CLIENT_ID = "71058c381b08480bacdf2e8b56b9dd93"; // your Client ID
+    const REDIRECT_URI = window.location.origin + window.location.pathname;
+    const SCOPES = [
+      'user-read-private',
+      'user-library-read',
+      'playlist-read-private',
+      'playlist-read-collaborative',
+      'user-modify-playback-state',
+      'user-read-playback-state',
+      'user-library-modify'
+    ];
+
+    // ======= AUTH (Implicit Grant) =======
+    function login() {
+      const state = crypto.getRandomValues(new Uint32Array(2)).join('-');
+      localStorage.setItem('spotify_auth_state', state);
+      const params = new URLSearchParams({
+        client_id: CLIENT_ID,
+        response_type: 'token',
+        redirect_uri: REDIRECT_URI,
+        scope: SCOPES.join(' '),
+        state
+      });
+      window.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
+    }
+    function parseHash() {
+      if (!location.hash.startsWith('#')) return null;
+      const p = new URLSearchParams(location.hash.slice(1));
+      if (!p.get('access_token')) return null;
+      return { access_token: p.get('access_token'), token_type: p.get('token_type'), expires_in: Number(p.get('expires_in') || 3600), state: p.get('state') };
+    }
+    function saveToken(tok) {
+      const expires_at = Date.now() + (tok.expires_in * 1000) - 5000;
+      localStorage.setItem('spotify_token', JSON.stringify({ access_token: tok.access_token, expires_at }));
+    }
+    function getToken() {
+      const raw = localStorage.getItem('spotify_token');
+      if (!raw) return null;
+      try { const t = JSON.parse(raw); if (Date.now() >= t.expires_at) return null; return t.access_token; } catch { return null; }
+    }
+    function logout() { localStorage.removeItem('spotify_token'); location.reload(); }
+
+    // ======= API helpers =======
+    async function sFetch(url, opts = {}) {
+      const token = getToken(); if (!token) throw new Error('Not authenticated');
+      const res = await fetch(url, { ...opts, headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', ...(opts.headers||{}) }});
+      if (res.status === 401) { localStorage.removeItem('spotify_token'); throw new Error('expired'); }
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+    async function sCmd(url, method='PUT', body=null) {
+      const token = getToken(); if (!token) throw new Error('Not authenticated');
+      const res = await fetch(url, { method, headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : null });
+      if (res.status === 401) { localStorage.removeItem('spotify_token'); const e=new Error('expired'); e.status=401; throw e; }
+      if (res.status === 204) return true;
+      if (!res.ok) { const txt = await res.text(); const e = new Error(txt || ('HTTP '+res.status)); e.status = res.status; throw e; }
+      return true;
+    }
+    function say(msg){ const el = document.getElementById('status'); if(!el) return; el.textContent = msg; setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; }, 4000); }
+    function friendlyError(e){ if(e && e.status===403) return 'Playback via API requires Spotify Premium.'; if(e && e.status===404) return 'No active device. Open Spotify, press play once, then try again.'; return (e && e.message) ? e.message : 'Something went wrong'; }
+    function showDeviceToast(){ document.getElementById('deviceToast')?.classList.remove('hidden'); }
+    function hideDeviceToast(){ document.getElementById('deviceToast')?.classList.add('hidden'); }
+
+    // ======= History =======
+    const HISTORY_KEY = 'rsp_history';
+    function loadHistory(){ try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; } }
+    let historyData = loadHistory();
+    function saveHistory(){ localStorage.setItem(HISTORY_KEY, JSON.stringify(historyData.slice(0,50))); }
+    function pushHistory(track){
+      if (!track || !track.id) return;
+      historyData = historyData.filter(t => t.id !== track.id);
+      historyData.unshift({
+        id: track.id,
+        name: track.name,
+        artists: artistsStr(track),
+        album: track.album?.name || '',
+        image: track.album?.images?.[0]?.url || '',
+        uri: track.uri,
+        url: track.external_urls?.spotify || '#'
+      });
+      saveHistory();
+    }
+    function renderHistory(){
+      const section = document.getElementById('historySection');
+      const list = document.getElementById('historyList');
+      if (!list) return;
+      if (!historyData.length) { section?.classList.add('hidden'); list.innerHTML=''; return; }
+      section?.classList.remove('hidden'); list.innerHTML = '';
+      for (const t of historyData.slice(0, 20)){
+        const card = document.createElement('button');
+        card.className = 'text-left glass border border-white/10 rounded-2xl p-3 hover:bg-white/10 transition';
+        card.title = 'Use this track';
+        card.innerHTML = `<div class="flex items-center gap-3">
+          <img src="${t.image}" alt="" class="w-12 h-12 rounded-lg object-cover"/>
+          <div class="min-w-0"><div class="truncate text-sm">${t.name}</div><div class="truncate text-xs text-slate-400">${t.artists}</div></div>
+        </div>`;
+        card.addEventListener('click', async () => {
+          try { const full = await sFetch('https://api.spotify.com/v1/tracks/'+t.id); showTrack(full, 'From history', false); }
+          catch { showTrack({ id:t.id, name:t.name, artists:t.artists.split(', ').map(n=>({name:n})), album:{ name:t.album, images:[{url:t.image}] }, uri:t.uri, external_urls:{spotify:t.url} }, 'From history', false); }
+        });
+        list.appendChild(card);
+      }
+    }
+
+    // ======= UI refs =======
+    const authSection = document.getElementById('authSection');
+    const appSection  = document.getElementById('appSection');
+    const loginBtn    = document.getElementById('loginBtn');
+    const logoutBtn   = document.getElementById('logoutBtn');
+    const displayName = document.getElementById('displayName');
+    const avatar      = document.getElementById('avatar');
+    const playlistPicker = document.getElementById('playlistPicker');
+    const playlistSelect = document.getElementById('playlistSelect');
+    const rollBtn     = document.getElementById('rollBtn');
+    const rerollBtn   = document.getElementById('rerollBtn');
+    const loading     = document.getElementById('loading');
+    const playBtn     = document.getElementById('playBtn');
+    const queueBtn    = document.getElementById('queueBtn');
+    const heartBtn    = document.getElementById('heartBtn');
+    const shareBtn    = document.getElementById('shareBtn');
+    const previewBtn  = document.getElementById('previewBtn');
+    let currentTrack  = null;
+
+    // ======= Preview helpers =======
+    const previewWrap = document.getElementById('previewWrap');
+    const previewEl   = document.getElementById('preview');
+
+    function stopPreview() {
+      try { previewEl.pause(); } catch {}
+      if (previewBtn) previewBtn.textContent = 'Preview ▶';
+    }
+
+    function togglePreview() {
+      if (!currentTrack) return;
+      if (!currentTrack.preview_url) { say('No preview available for this track.'); return; }
+
+      if (previewEl.src !== currentTrack.preview_url) previewEl.src = currentTrack.preview_url;
+      previewWrap.classList.remove('hidden');
+
+      if (previewEl.paused) {
+        previewEl.currentTime = 0;
+        previewEl.play().then(() => {
+          previewBtn.textContent = 'Pause ⏸';
+        }).catch(() => {});
+      } else {
+        stopPreview();
+      }
+    }
+
+    if (previewBtn) {
+      previewBtn.addEventListener('click', togglePreview);
+    }
+    if (previewEl) {
+      previewEl.addEventListener('ended', stopPreview);
+      previewEl.addEventListener('pause', () => { if (!previewEl.seeking) previewBtn.textContent = 'Preview ▶'; });
+    }
+
+    // Theme
+    const themeToggle = document.getElementById('themeToggle');
+    const THEME_KEY = 'rsp_theme';
+    function setTheme(mode){
+      document.documentElement.classList.toggle('dark', mode === 'dark');
+      localStorage.setItem(THEME_KEY, mode);
+      if (themeToggle) themeToggle.textContent = (mode === 'dark') ? '☀️' : '🌙';
+    }
+    (function initTheme(){
+      const saved = localStorage.getItem(THEME_KEY) || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      setTheme(saved);
+    })();
+    themeToggle?.addEventListener('click', () => { const isDark = document.documentElement.classList.contains('dark'); setTheme(isDark ? 'light' : 'dark'); });
+
+    // FX canvas for confetti
+    const fxCanvas = document.getElementById('fx');
+    const fxCtx = fxCanvas ? fxCanvas.getContext('2d') : null;
+    function sizeFx(){ if(!fxCanvas) return; fxCanvas.width = innerWidth; fxCanvas.height = innerHeight; }
+    addEventListener('resize', sizeFx); sizeFx();
+
+    // Helpers
+    function artistsStr(track){ return track.artists.map(a=>a.name).join(', '); }
+
+    // Data helpers
+    async function me() { return sFetch('https://api.spotify.com/v1/me'); }
+    async function getPlaylistsPage(offset=0) { return sFetch(`https://api.spotify.com/v1/me/playlists?limit=50&offset=${offset}`); }
+
+    let playlistsCache = null;
+    async function ensurePlaylistsLoaded() {
+      if (playlistsCache) return playlistsCache;
+      let items = []; let offset = 0; let total = 1;
+      while (offset < total) {
+        const page = await getPlaylistsPage(offset);
+        items = items.concat(page.items);
+        total = page.total; offset += page.items.length;
+      }
+      playlistsCache = items;
+      playlistSelect.innerHTML = '';
+      for (const p of items) {
+        const opt = document.createElement('option');
+        opt.value = p.id; opt.textContent = `${p.name} (${p.tracks.total})`;
+        playlistSelect.appendChild(opt);
+      }
+      if (items.length === 0) {
+        const opt = document.createElement('option'); opt.textContent = 'No playlists found'; playlistSelect.appendChild(opt);
+      }
+      return items;
+    }
+
+    async function randomFromLiked() {
+      const first = await sFetch('https://api.spotify.com/v1/me/tracks?limit=1');
+      const total = first.total || (first.items?.length ? 1 : 0);
+      if (!total) throw new Error('No liked songs');
+      const offset = Math.floor(Math.random()*total);
+      const page = await sFetch(`https://api.spotify.com/v1/me/tracks?limit=1&offset=${offset}`);
+      return page.items[0].track;
+    }
+    async function randomFromPlaylist(id) {
+      const t1 = await sFetch(`https://api.spotify.com/v1/playlists/${id}/tracks?limit=1`);
+      const total = t1.total || (t1.items?.length ? 1 : 0);
+      if (!total) throw new Error('This playlist looks empty');
+      const offset = Math.floor(Math.random()*total);
+      let page = await sFetch(`https://api.spotify.com/v1/playlists/${id}/tracks?limit=1&offset=${offset}`);
+      let entry = page.items[0];
+      let tries = 0;
+      while ((!entry || !entry.track) && tries < 3) {
+        const o2 = Math.floor(Math.random()*total);
+        page = await sFetch(`https://api.spotify.com/v1/playlists/${id}/tracks?limit=1&offset=${o2}`);
+        entry = page.items[0]; tries++;
+      }
+      return entry?.track || null;
+    }
+
+    function showTrack(track, sourceText, addToHistory = true) {
+      if (!track) throw new Error('Could not load a track. Try again.');
+      stopPreview(); // reset any existing preview
+      currentTrack = track;
+
+      const result = {
+        wrap: document.getElementById('result'),
+        cover: document.getElementById('cover'),
+        title: document.getElementById('trackTitle'),
+        meta:  document.getElementById('trackMeta'),
+        open:  document.getElementById('openBtn'),
+        sourceLabel: document.getElementById('sourceLabel'),
+        previewWrap: document.getElementById('previewWrap'),
+        preview: document.getElementById('preview')
+      };
+      result.sourceLabel.textContent = sourceText;
+      result.title.textContent = track.name;
+      result.meta.textContent = `${artistsStr(track)} • ${track.album.name}`;
+      result.cover.src = track.album.images?.[0]?.url || '';
+      result.open.href = track.external_urls?.spotify || '#';
+
+      if (track.preview_url) {
+        result.previewWrap.classList.remove('hidden');
+        result.preview.src = track.preview_url;
+        previewBtn.classList.remove('hidden');
+        previewBtn.textContent = 'Preview ▶';
+      } else {
+        result.previewWrap.classList.add('hidden');
+        result.preview.removeAttribute('src');
+        previewBtn.classList.add('hidden');
+      }
+
+      if (addToHistory) pushHistory(track);
+      renderHistory();
+      refreshHeart();
+      result.wrap.classList.remove('hidden');
+      result.wrap.classList.add('pop-in');
+      confettiBurst();
+    }
+
+    async function roll() {
+      stopPreview(); // stop any current preview before switching tracks
+      loading.classList.remove('hidden');
+      rollBtn.classList.add('wiggle');
+      if (navigator.vibrate) { try { navigator.vibrate(20); } catch(_){} }
+      setTimeout(() => rollBtn.classList.remove('wiggle'), 400);
+      try {
+        const source = document.querySelector('input[name="source"]:checked').value;
+        let track, label;
+        if (source === 'liked') { label = 'From your Liked Songs'; track = await randomFromLiked(); }
+        else { const id = playlistSelect.value; label = 'From your playlist'; if (!id) throw new Error('Choose a playlist'); track = await randomFromPlaylist(id); }
+        showTrack(track, label, true);
+      } catch (e) { alert(e.message || String(e)); }
+      finally { loading.classList.add('hidden'); }
+    }
+
+    // Events
+    document.getElementById('loginBtn').addEventListener('click', login);
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+    document.querySelectorAll('input[name="source"]').forEach(r => {
+      r.addEventListener('change', async () => {
+        if (r.value === 'playlist' && r.checked) { playlistPicker.classList.remove('hidden'); await ensurePlaylistsLoaded(); }
+        else if (r.value === 'liked' && r.checked) { playlistPicker.classList.add('hidden'); }
+      });
+    });
+    rollBtn.addEventListener('click', roll);
+    rerollBtn.addEventListener('click', roll);
+
+    playBtn.addEventListener('click', async () => {
+      if (!currentTrack) return;
+      stopPreview(); // stop local preview when controlling device playback
+      try { await sCmd('https://api.spotify.com/v1/me/player/play', 'PUT', { uris: [currentTrack.uri] }); say('Playing on your active device.'); }
+      catch (e) { if (e && e.status === 404) showDeviceToast(); say(friendlyError(e)); }
+    });
+    queueBtn.addEventListener('click', async () => {
+      if (!currentTrack) return;
+      stopPreview(); // stop local preview when queueing
+      try { const uri = encodeURIComponent(currentTrack.uri); await sCmd(`https://api.spotify.com/v1/me/player/queue?uri=${uri}`, 'POST'); say('Added to the queue on your active device.'); }
+      catch (e) { if (e && e.status === 404) showDeviceToast(); say(friendlyError(e)); }
+    });
+
+    document.getElementById('clearHistoryBtn')?.addEventListener('click', () => { historyData = []; saveHistory(); renderHistory(); });
+
+    document.addEventListener('keydown', (e) => {
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag && ['INPUT','TEXTAREA','SELECT'].includes(tag)) return;
+      if (e.code === 'Space') { e.preventDefault(); roll(); return; }
+      const k = (e.key || '').toLowerCase();
+      if (k === 'p') playBtn.click();
+      if (k === 'q') queueBtn.click();
+      if (k === 'o' && currentTrack) window.open(currentTrack.external_urls?.spotify, '_blank');
+      if (k === 'h') document.getElementById('historySection')?.classList.toggle('hidden');
+    });
+
+    document.getElementById('deviceDismiss')?.addEventListener('click', hideDeviceToast);
+    document.getElementById('deviceRetry')?.addEventListener('click', async () => {
+      hideDeviceToast();
+      try { await sFetch('https://api.spotify.com/v1/me/player/devices'); playBtn.click(); } catch {}
+    });
+
+    // Heart (Save/Unsave)
+    async function refreshHeart(){
+      if (!currentTrack || !currentTrack.id) return;
+      try {
+        const res = await sFetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${currentTrack.id}`);
+        const saved = !!res[0];
+        heartBtn.dataset.saved = saved ? '1' : '0';
+        heartBtn.textContent = saved ? '♥ Saved' : '♡ Save';
+        heartBtn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+      } catch {}
+    }
+    heartBtn.addEventListener('click', async () => {
+      if (!currentTrack || !currentTrack.id) return;
+      const saved = heartBtn.dataset.saved === '1';
+      try {
+        const url = `https://api.spotify.com/v1/me/tracks?ids=${currentTrack.id}`;
+        await sCmd(url, saved ? 'DELETE' : 'PUT');
+        say(saved ? 'Removed from Liked Songs' : 'Saved to Liked Songs');
+        refreshHeart();
+      } catch (e) { say(friendlyError(e)); }
+    });
+
+    // Share card
+    async function makeShareImage(track){
+      const canvas = document.createElement('canvas'); const W = canvas.width = 1200, H = canvas.height = 630;
+      const ctx = canvas.getContext('2d');
+      const g = ctx.createLinearGradient(0,0,W,H); g.addColorStop(0,'#111827'); g.addColorStop(1,'#4c1d95'); ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+      const img = new Image(); img.crossOrigin = 'anonymous'; img.src = track.album.images?.[0]?.url || '';
+      await new Promise(res => { img.onload = res; img.onerror = res; });
+      const C = 480; ctx.drawImage(img, 60, (H-C)/2, C, C);
+      ctx.font = 'bold 56px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto'; ctx.fillStyle = '#fff'; wrapText(ctx, track.name, 580, 230, W-620, 64, 2);
+      ctx.font = '28px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto'; ctx.fillStyle = 'rgba(255,255,255,.85)'; wrapText(ctx, track.artists.map(a=>a.name).join(', '), 580, 330, W-620, 36, 2);
+      ctx.font = '20px ui-sans-serif, system-ui'; ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillText('Random Spotify Song Picker', 580, H-60);
+      return canvas.toDataURL('image/png');
+    }
+    function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines){
+      const words = String(text||'').split(' '); let line='', lines=[];
+      for (let n=0;n<words.length;n++){ const test=line+words[n]+' '; if (ctx.measureText(test).width>maxWidth && n>0){ lines.push(line); line=words[n]+' '; } else line=test; }
+      lines.push(line); lines = lines.slice(0,maxLines); lines.forEach((ln,i)=> ctx.fillText(ln.trim(), x, y+i*lineHeight));
+    }
+    async function shareCurrent(){
+      if (!currentTrack) return;
+      const dataUrl = await makeShareImage(currentTrack);
+      try {
+        const blob = await (await fetch(dataUrl)).blob();
+        const file = new File([blob], 'random-song.png', { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })){ await navigator.share({ files:[file], title: currentTrack.name, text: `${currentTrack.name} — ${artistsStr(currentTrack)}` }); return; }
+      } catch {}
+      const a = document.createElement('a'); a.href = dataUrl; a.download = 'random-song.png'; a.click();
+      const url = encodeURIComponent(currentTrack.external_urls?.spotify || ''); const text = encodeURIComponent(`${currentTrack.name} — ${artistsStr(currentTrack)}`);
+      window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');
+    }
+    shareBtn.addEventListener('click', shareCurrent);
+
+    // Confetti
+    function confettiBurst(){
+      if (!fxCtx || !fxCanvas) return;
+      const W = fxCanvas.width, H = fxCanvas.height, N = 80;
+      const parts = Array.from({length:N}, () => ({ x: W/2 + (Math.random()-0.5)*60, y: H/2 - 40, vx: (Math.random()-0.5)*6, vy: Math.random()*-6 - 2, size: Math.random()*6+3, life: 1, color: `hsl(${Math.random()*360},85%,60%)` }));
+      (function tick(){ fxCtx.clearRect(0,0,W,H); let alive = false;
+        for (const p of parts){ p.vy += 0.15; p.x += p.vx; p.y += p.vy; p.life -= 0.015;
+          if (p.life>0){ alive = true; fxCtx.globalAlpha = Math.max(p.life,0); fxCtx.fillStyle = p.color; fxCtx.fillRect(p.x, p.y, p.size, p.size*0.6); }
+        }
+        fxCtx.globalAlpha = 1; if (alive) requestAnimationFrame(tick); else fxCtx.clearRect(0,0,W,H);
+      })();
+    }
+
+    // Button ripples
+    function attachRipples(){
+      document.querySelectorAll('.action-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const rect = btn.getBoundingClientRect(); const s = Math.max(rect.width, rect.height);
+          const span = document.createElement('span'); span.className = 'ripple'; span.style.width = span.style.height = s + 'px';
+          span.style.left = (e.clientX - rect.left - s/2) + 'px'; span.style.top = (e.clientY - rect.top - s/2) + 'px';
+          btn.appendChild(span); setTimeout(()=> span.remove(), 650);
+        });
+      });
+    }
+    attachRipples();
+
+    // PWA install + SW
+    let deferredPrompt = null;
+    const installBtn = document.getElementById('installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; installBtn?.classList.remove('hidden'); });
+    installBtn?.addEventListener('click', async () => { if (!deferredPrompt) return; installBtn.classList.add('hidden'); deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; });
+    window.addEventListener('appinstalled', () => { installBtn?.classList.add('hidden'); });
+    if ('serviceWorker' in navigator) { window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js')); }
+
+    // ======= Boot =======
+    (async function boot(){
+      const h = parseHash();
+      if (h) {
+        const expected = localStorage.getItem('spotify_auth_state');
+        if (!expected || expected !== h.state) alert('State mismatch. Please try logging in again.');
+        else saveToken(h);
+        history.replaceState({}, document.title, REDIRECT_URI);
+      }
+
+      const token = getToken();
+      if (!CLIENT_ID || CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID') { authSection.innerHTML = '<p class="text-rose-300">Set your <b>CLIENT_ID</b> at the top of this file.</p>'; return; }
+      if (!token) { authSection.classList.remove('hidden'); appSection.classList.add('hidden'); logoutBtn.classList.add('hidden'); return; }
+
+      try {
+        const profile = await me();
+        displayName.textContent = profile.display_name || profile.id;
+        if (profile.images && profile.images[0]) { avatar.src = profile.images[0].url; avatar.classList.remove('hidden'); }
+        authSection.classList.add('hidden'); appSection.classList.remove('hidden'); logoutBtn.classList.remove('hidden');
+        renderHistory();
+      } catch {
+        localStorage.removeItem('spotify_token'); authSection.classList.remove('hidden'); appSection.classList.add('hidden'); logoutBtn.classList.add('hidden');
+      }
+    })();
+  </script>
+</body>
+</html>
